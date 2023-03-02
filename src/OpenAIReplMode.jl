@@ -9,8 +9,8 @@ headers = ["Content-Type" => "application/json", "Authorization" => "Bearer $(EN
 
 "maybe add option to prefix all chats with a prompt (ie julia mode)"
 function chat(s)
-    msg = """{"role": "user", "content": "$s"}"""
-    msgj = JSON3.read(msg)
+    msg = Dict("role" => "user", "content" => s)
+    msgj = JSON3.read(JSON3.write(msg))
     push!(OPENAI_CHAT_HIST, msgj)
 
     idx1 = max(1, length(OPENAI_CHAT_HIST) - MEMORY_SIZE)
