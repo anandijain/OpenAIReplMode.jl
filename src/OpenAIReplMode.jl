@@ -1,14 +1,11 @@
 module OpenAIReplMode
 
-using OpenAI, ReplMaker
-using CSV, DataFrames, JSON3, JSONTables
-using HTTP, Markdown
+using ReplMaker, HTTP, Markdown, JSON3
 
 MEMORY_SIZE = 5
+# todo write this to file
 OPENAI_CHAT_HIST = []
-const headers = ["Content-Type" => "application/json", "Authorization" => "Bearer $(ENV["OPENAI_API_KEY"])"]
-
-s = test_msg = "how do i publish a julia package?"
+headers = ["Content-Type" => "application/json", "Authorization" => "Bearer $(ENV["OPENAI_API_KEY"])"]
 
 "maybe add option to prefix all chats with a prompt (ie julia mode)"
 function chat(s)
@@ -24,14 +21,19 @@ function chat(s)
     j = JSON3.read(resp.body)
     resp_msg = j.choices[1].message
     push!(OPENAI_CHAT_HIST, resp_msg)
-    # show(stdout, resp_msg.content)
+    j
+end
+
+"todo fix this up a bit"
+function chat_show(io, M, j)
+    resp_msg = j.choices[1].message
     c = resp_msg.content
     display(Markdown.parse(c))
-    nothing
 end
 
 function __init__()
     initrepl(chat,
+        show_function=chat_show,
         prompt_text="chatgpt> ",
         prompt_color=:magenta,
         start_key=')',
