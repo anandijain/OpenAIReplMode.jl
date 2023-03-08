@@ -2,13 +2,11 @@ module OpenAIReplMode
 
 using ReplMaker, HTTP, Markdown, JSON3
 
-MEMORY_SIZE = 5
-# todo write this to file
-OPENAI_CHAT_HIST = []
-headers = ["Content-Type" => "application/json", "Authorization" => "Bearer $(ENV["OPENAI_API_KEY"])"]
-
 "maybe add option to prefix all chats with a prompt (ie julia mode)"
 function chat(s)
+    # @info s, typeof(s)
+    # @info esc(s)
+
     msg = Dict("role" => "user", "content" => s)
     msgj = JSON3.read(JSON3.write(msg))
     push!(OPENAI_CHAT_HIST, msgj)
@@ -26,12 +24,62 @@ end
 
 "todo fix this up a bit"
 function chat_show(io, M, j)
-    resp_msg = j.choices[1].message
-    c = resp_msg.content
-    display(Markdown.parse(c))
+    display(Markdown.parse(getc(j)))
+end
+
+function chat_show(j)
+    display(Markdown.parse(getc(j)))
+end
+
+function chat_show(s::AbstractString)
+    display(Markdown.parse(s))
+end
+
+replchat(s) = begin
+    j = chat(s)
+    chat_show(j)
+    j
+end
+
+function codeblocks(markdown::AbstractString; prefix="```julia")
+    blocks = Vector{String}()
+    mdlines = split(markdown, "\n")
+    in_block = false
+    curr_block = ""
+    for line in mdlines
+        if startswith(line, prefix)
+            in_block = true
+            curr_block = ""
+        elseif startswith(line, "```")
+            in_block = false
+            push!(blocks, curr_block)
+        end
+        if in_block && !startswith(line, prefix)
+            curr_block *= line * "\n"
+        end
+    end
+    return blocks
+end
+
+codeblocks(j; prefix="```julia") = codeblocks(getc(j); prefix)
+
+getc(x) = x.choices[1].message.content
+
+function to_code_str(j)
+    to_code_str(getc(j))
+end
+
+function to_code_str(c::AbstractString)
+    bs = codeblocks(c)
+    join(bs, '\n')
 end
 
 function __init__()
+    global MEMORY_SIZE = 10
+    # todo write this to file
+    global OPENAI_CHAT_HIST = []
+    global headers = ["Content-Type" => "application/json", "Authorization" => "Bearer " * ENV["OPENAI_API_KEY"]]
+
     initrepl(chat,
         show_function=chat_show,
         prompt_text="chatgpt> ",
@@ -39,5 +87,11 @@ function __init__()
         start_key=')',
         mode_name="chatgpt_mode")
 end
+
+# apologies for heavy exporting
+export chat, getc, chat_show
+export replchat, codeblocks, to_code_str
+
+# __init__() = isdefined(Base, :active_repl) ? init_repl() : nothing
 
 end # module OpenAIReplMode
