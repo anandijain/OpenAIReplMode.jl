@@ -78,7 +78,8 @@ function __init__()
     global MEMORY_SIZE = 10
     # todo write this to file
     global OPENAI_CHAT_HIST = []
-    global headers = ["Content-Type" => "application/json", "Authorization" => "Bearer " * ENV["OPENAI_API_KEY"]]
+    global OPENAI_API_KEY = get(ENV, "OPENAI_API_KEY", "")
+    global headers = ["Content-Type" => "application/json", "Authorization" => "Bearer " * OPENAI_API_KEY]
 
     initrepl(chat,
         show_function=chat_show,
