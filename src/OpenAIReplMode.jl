@@ -2,7 +2,10 @@ module OpenAIReplMode
 
 using ReplMaker, HTTP, Markdown, JSON3
 
-"maybe add option to prefix all chats with a prompt (ie julia mode)"
+"maybe add option to prefix all chats with a prompt (ie julia mode)
+add option to not use history or specify history size from callsite
+maybe use preferences too?
+"
 function chat(s)
     # @info s, typeof(s)
     # @info esc(s)
@@ -74,7 +77,7 @@ function to_code_str(c::AbstractString)
     join(bs, '\n')
 end
 
-function __init__()
+function init_repl()
     global MEMORY_SIZE = 10
     # todo write this to file
     global OPENAI_CHAT_HIST = []
@@ -89,10 +92,10 @@ function __init__()
         mode_name="chatgpt_mode")
 end
 
+__init__() = isdefined(Base, :active_repl) ? init_repl() : nothing
+
 # apologies for heavy exporting
 export chat, getc, chat_show
 export replchat, codeblocks, to_code_str
-
-# __init__() = isdefined(Base, :active_repl) ? init_repl() : nothing
 
 end # module OpenAIReplMode
