@@ -87,11 +87,11 @@ erj = chat(estr)
 # showerror(stdout, exc)
 
 # Make sure that the TESTSET CODE BLOCK is an `@testset` block
+# I want to wrap the second code block with `redirect_stdio(stdout="stdout.txt", stderr="stderr.txt") do @testset ... end` so that I can see the exceptions that are thrown. 
 preprompt = 
 """
 Solve the below task and return exactly two code blocks.
-The first is the function that solves the task, and the second which is code that tests the function. 
-I want to wrap the second code block with `redirect_stdio(stdout="stdout.txt", stderr="stderr.txt") do @testset ... end` so that I can see the exceptions that are thrown. 
+The first is the function that solves the task, and the second which is code that tests the function with `@testset`. 
 I also want all `using PACKAGE` statements to go in the first code block and do not put any `using PACKAGE` statements in the second code block.
 This should include `using Test`, which should still go in the first code block. Don't make the testset const.
 
@@ -104,16 +104,79 @@ bs = codeblocks(h)
 cs = to_code_str(resp)
 cs = to_code_str(h)
 chat_show(resp)
-e = try
+est = try
     eval(Meta.parseall(cs))
 catch e
-    e
+    e#, current_exceptions()
 end
+
 resp_preprompt = """
 $full_prompt
 
 Below is the result of running the tests. If there are any errors, please fix them and try again. If there are no errors, then you are done! 
 
-$stdout_str
+$(repr(est.errors_and_fails))
 """
 resp2 = chat(resp_preprompt)
+ds = Docs.doc.([MethodError, ArgumentError])
+clues = join(ds, "\n")
+resp3 = chat("The definitions of the error types might help you fix the testset, $clues")
+cs = to_code_str(resp3)
+
+chs = []
+
+est = try
+    eval(Meta.parseall(cs))
+catch e
+    e#, current_exceptions()
+end
+
+p2 = """
+Write a Julia function called count_uppercase_letters that takes in a string as an argument and returns the number of uppercase letters in that string.
+
+Here's an example of the expected behavior of the function:
+
+julia> count_uppercase_letters("Happiness Is A Warm Gun")
+8
+
+
+Write a test block that includes at least three test cases for the count_uppercase_letters function using the @test macro. The test block
+should include a test case that checks if the function returns 0 when an empty string is passed as an argument, and another test case that
+checks if the function correctly handles mixed-case input. The test cases should cover all relevant scenarios, and the test block should be
+named "count_uppercase_letters".
+
+"""
+# this kind of thing could be dangerous, we probably don't want to eval AI code automatically. 
+# but IDGAF!!!! i is cool and gangstar
+est = try
+    eval(Meta.parseall(to_code_str(chat(p2))))
+catch e
+    e#, current_exceptions()
+end
+
+est2 = try
+    eval(Meta.parseall(to_code_str(chat(p2 * "\n\n" * repr(est.errors_and_fails)))))
+catch e
+    e#, current_exceptions()
+end
+
+# chat("""
+# clue: 
+# julia> apropos(r"isupper")
+# Base.Unicode.islowercase
+# Base.Unicode.isuppercase
+# Base.Unicode.iscased
+# """
+# )
+h = OpenAIReplMode.OPENAI_CHAT_HIST[end].content
+est3 = try
+    eval(Meta.parseall(to_code_str(h)))
+catch e
+    e#, current_exceptions()
+end
+est4 = try
+    ch = chat(p2 * "\n\n" * repr(est3.errors_and_fails))
+    eval(Meta.parseall(to_code_str(ch)))
+catch e
+    e#, current_exceptions()
+end

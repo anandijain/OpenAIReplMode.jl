@@ -61,6 +61,8 @@ function codeblocks(markdown::AbstractString; prefix="```julia")
     return blocks
 end
 
+codeblocks(j; prefix="```julia") = codeblocks(getc(j); prefix)
+
 getc(x) = x.choices[1].message.content
 
 function to_code_str(j)
@@ -86,6 +88,7 @@ function __init__()
         mode_name="chatgpt_mode")
 end
 
+# apologies for heavy exporting
 export chat, getc, chat_show
 export replchat, codeblocks, to_code_str
 
