@@ -4,14 +4,9 @@ using ReplMaker, HTTP, Markdown, JSON3
 using REPL
 using OpenAI
 
-global OPENAI_API_KEY = get(ENV, "OPENAI_API_KEY", "")
-global HIST_FILE = joinpath(dirname(REPL.find_hist_file()), "openai_hist.json")
-global MEMORY_SIZE = 10
-global OPENAI_GPT_MODEL = "gpt-4"
-# global OPENAI_GPT_MODEL = "gpt-3.5-turbo"
-# todo write this to file
-# add being able to switch histories
-global OPENAI_CHAT_HIST = []
+# https://github.com/JuliaLang/julia/issues/25750
+# this would have made life easy
+# Base.getproperty(d::Dict{K,V}, v::V) where {K, V} = d[v]
 
 function make_message(s)
     msg = Dict("role" => "user", "content" => s)
@@ -33,14 +28,23 @@ maybe use preferences too?
 function chat(s)
     msgj = make_message(s)
     body = JSON3.write(build_messages(s))
-    resp = HTTP.post("https://api.openai.com/v1/chat/completions"; body, headers)
-    j = JSON3.read(resp.body)
-    open(HIST_FILE, "a") do io
-        JSON3.write(io, [msgj, j])
+    try
+        resp = HTTP.post("https://api.openai.com/v1/chat/completions"; body, headers)
+        j = JSON3.read(resp.body)
+        open(HIST_FILE, "a") do io
+            JSON3.write(io, [msgj, j])
+        end
+        resp_msg = j.choices[1].message
+        push!(OPENAI_CHAT_HIST, resp_msg)
+        j
+    catch e
+        if e isa InterruptException
+            @info typeof(e)
+        else
+            rethrow(e)
+        end
     end
-    resp_msg = j.choices[1].message
-    push!(OPENAI_CHAT_HIST, resp_msg)
-    j
+
 end
 
 "todo fix this up a bit"
@@ -62,7 +66,7 @@ replchat(s) = begin
     j
 end
 
-function codeblocks(markdown::AbstractString; prefix="```julia")
+function codeblocks(markdown::AbstractString; prefix="```")
     blocks = Vector{String}()
     mdlines = split(markdown, "\n")
     in_block = false
@@ -82,7 +86,32 @@ function codeblocks(markdown::AbstractString; prefix="```julia")
     return blocks
 end
 
-codeblocks(j; prefix="```julia") = codeblocks(getc(j); prefix)
+codeblocks(j; prefix="```") = codeblocks(getc(j); prefix)
+function codeblocks(; prefix="```")
+    assistant_messages = filter(m -> m["role"] == "assistant", OPENAI_CHAT_HIST)
+    last_message = isempty(assistant_messages) ? "" : assistant_messages[end]["content"]
+    extract_code_blocks(last_message)
+end
+
+function extract_code_blocks(markdown::String)
+    code_blocks = []
+    inside_code_block = false
+    current_block = ""
+
+    for line in split(markdown, '\n')
+        if startswith(line, "```") && inside_code_block
+            push!(code_blocks, current_block)
+            current_block = ""
+            inside_code_block = false
+        elseif inside_code_block
+            current_block = current_block * line * "\n"
+        elseif startswith(line, "```")
+            inside_code_block = true
+        end
+    end
+
+    return code_blocks
+end
 
 getc(x) = x.choices[1].message.content
 
@@ -131,21 +160,30 @@ function fix_msg_for_streamcb(msg)
     ks, vs = unzip(collect(msg))
     Dict(String.(ks) .=> vs)
 end
-    
+
 function stream_chat(s)
     msgj = make_message(s)
     idx1 = max(1, length(OPENAI_CHAT_HIST) - MEMORY_SIZE)
     msgs = OPENAI_CHAT_HIST[idx1:end]
     msgs = fix_msg_for_streamcb.(msgs)
-    try 
-    stream_resp_to_msg(OpenAI.create_chat(
-        OPENAI_API_KEY,
-        OPENAI_GPT_MODEL,
-        msgs; streamcallback=show_stream_content
-    ))
+    try
+        global STREAM_BUF = []
+        c = OpenAI.create_chat(
+            OPENAI_API_KEY,
+            OPENAI_GPT_MODEL,
+            msgs; streamcallback=show_stream_content
+        )
+        resp_str = stream_resp_to_msg(c)
+        push!(OPENAI_CHAT_HIST, JSON3.read(JSON3.write(Dict(["role" => "assistant", "content" => resp_str]))))
+        resp_str
+
     catch e
         if e isa InterruptException
-            @info typeof(e)
+        elseif e isa HTTP.Exceptions.RequestError
+            if e.error isa InterruptException
+                push!(OPENAI_CHAT_HIST, JSON3.read(JSON3.write(Dict(["role" => "assistant", "content" => join(STREAM_BUF)]))))
+                @info typeof(e.error)
+            end
         else
             rethrow(e)
         end
@@ -165,10 +203,12 @@ function stream_chat_show(io, M, s)
 end
 
 getdc(x) = x.choices[1].delta.content
-function stream_resp_to_msg(resp)
+function stream_resp_to_msg(resp;say=true)
     rs = resp.response
     gs, _ = goodbad(getdc, rs)
-    join(last.(gs))
+    s = join(last.(gs))
+    # say && run(`say '$s'`)
+    s
 end
 
 function show_stream_content(response)
@@ -185,7 +225,8 @@ function show_stream_content(response)
 
                         content = get(delta, "content", nothing)
                         if content !== nothing
-
+                            push!(STREAM_BUF, content)
+                            # run(`say $content`)
                             print(content)
                         end
                     end
@@ -199,7 +240,15 @@ function show_stream_content(response)
 end
 
 function init_repl(; kws...)
-
+    global OPENAI_API_KEY = get(ENV, "OPENAI_API_KEY", "")
+    global HIST_FILE = joinpath(dirname(REPL.find_hist_file()), "openai_hist.json")
+    global MEMORY_SIZE = 10
+    global OPENAI_GPT_MODEL = "gpt-4"
+    # global OPENAI_GPT_MODEL = "gpt-3.5-turbo"
+    # todo write this to file
+    # add being able to switch histories
+    global OPENAI_CHAT_HIST = []
+    global STREAM_BUF = []
     global OPENAI_API_KEY = get(ENV, "OPENAI_API_KEY", "")
     global headers = ["Content-Type" => "application/json", "Authorization" => "Bearer " * OPENAI_API_KEY]
 
@@ -221,7 +270,7 @@ function init_repl(; kws...)
 
 end
 
-__init__() = isdefined(Base, :active_repl) ? init_repl() : nothing
+# __init__() = isdefined(Base, :active_repl) ? init_repl() : nothing
 
 # apologies for heavy exporting
 export chat, getc, chat_show
